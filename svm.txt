@@ -1,116 +1,58 @@
-import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder, LabelEncoder, StandardScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix, precision_recall_fscore_support
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# Load your dataset
-data = pd.read_csv('pattern1.csv')
+# Load the dataset
+file_path = 'pattern2.csv'
+df = pd.read_csv(file_path)
 
-# Define your target column and features
-target_column = 'Cases'  # Replace with your actual target column name ('Cases', 'Deaths', etc.)
-if target_column in data.columns:
-    X = data.drop(target_column, axis=1)
-    y = data[target_column]
-else:
-    raise KeyError(f'{target_column} not found in the dataset. Please check your column names.')
+# Convert 'Deaths' column to binary classification
+df['Deaths_binary'] = (df['Deaths'] > 0).astype(int)
 
-# Drop non-numeric columns for simplicity (day, time)
-X.drop(['day', 'time'], axis=1, inplace=True)
+# Select features and target
+selected_features = ['population', 'Cases', 'Deaths']
+X = df[selected_features]
+y = df['Deaths_binary']  # Target column for Deaths
 
-# Handle categorical columns using OneHotEncoder
-categorical_cols = ['country', 'continent']  # Adjust based on your dataset
-numeric_cols = [col for col in X.columns if col not in categorical_cols]
-
-# One-hot encode categorical columns
-onehot_encoder = OneHotEncoder(drop='first', sparse_output=False)
-X_encoded = onehot_encoder.fit_transform(X[categorical_cols])
-
-# Create column names for the one-hot encoded columns
-cat_cols_encoded = onehot_encoder.get_feature_names_out(categorical_cols)
-X_encoded_df = pd.DataFrame(X_encoded, columns=cat_cols_encoded)
-
-# Concatenate encoded categorical columns with numerical columns
-X_processed = pd.concat([X_encoded_df, X[numeric_cols]], axis=1)
-
-# Scale the features
+# Standardize the features
 scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X_processed)
+X_scaled = scaler.fit_transform(X)
 
-# Convert target to multiclass classification
-le = LabelEncoder()
-y_encoded = le.fit_transform(y)
+# Split the data into training and testing sets (80:20)
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
-# Split the data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_encoded, test_size=0.2, random_state=42)
-
-# Create an SVM classifier
-svm_model = SVC(kernel='linear', probability=True, random_state=42)
-
-# Train the SVM classifier
+# Define and train the SVM model
+svm_model = SVC(kernel='linear', probability=True)
 svm_model.fit(X_train, y_train)
 
-# Predictions on the test set
-y_pred = svm_model.predict(X_test)
+# Compute predictions
+y_pred_svm = svm_model.predict(X_test)
+y_pred_proba_svm = svm_model.predict_proba(X_test)[:, 1]  # Probabilities for the positive class
 
-# Calculate metrics
-accuracy = accuracy_score(y_test, y_pred)
-precision = precision_score(y_test, y_pred, average='macro', zero_division=1)
-recall = recall_score(y_test, y_pred, average='macro', zero_division=1)
-f1 = f1_score(y_test, y_pred, average='macro', zero_division=1)
-conf_matrix = confusion_matrix(y_test, y_pred)
+# Print Classification Report for SVM
+print("Classification Report for SVM:\n", classification_report(y_test, y_pred_svm))
 
-# Calculate ROC curve and AUC (for multiclass classification)
-y_pred_proba = svm_model.predict_proba(X_test)
-fpr = dict()
-tpr = dict()
-roc_auc = dict()
-n_classes = y_pred_proba.shape[1]  # Number of classes
-
-for i in range(n_classes):
-    if np.sum(y_test == i) == 0:
-        fpr[i], tpr[i], roc_auc[i] = [0], [0], 0
-    else:
-        fpr[i], tpr[i], _ = roc_curve(y_test == i, y_pred_proba[:, i])
-        roc_auc[i] = auc(fpr[i], tpr[i])
-
-# Print metrics
-print(f'Accuracy: {accuracy:.2f}')
-print(f'Precision: {precision:.2f}')
-print(f'Recall: {recall:.2f}')
-print(f'F1-score: {f1:.2f}')
-print('Confusion Matrix:')
-print(conf_matrix)
-
-# Plot ROC curve for each class
+# Plot Confusion Matrix for SVM
+cm_svm = confusion_matrix(y_test, y_pred_svm)
 plt.figure(figsize=(8, 6))
-colors = ['blue', 'green', 'red', 'cyan', 'magenta', 'yellow', 'black', 'purple', 'orange', 'brown']
-for i, color in zip(range(n_classes), colors):
-    if len(fpr[i]) > 1:  # Only plot if there are true positive rates calculated
-        plt.plot(fpr[i], tpr[i], color=color, lw=2, label=f'ROC Curve (Class {i} - AUC = {roc_auc[i]:.2f})')
-plt.plot([0, 1], [0, 1], color='gray', linestyle='--')
-plt.xlim([0.0, 1.0])
-plt.ylim([0.0, 1.05])
-plt.xlabel('False Positive Rate')
-plt.ylabel('True Positive Rate')
-plt.title('Receiver Operating Characteristic (ROC)')
-plt.legend(loc='lower right')
+sns.heatmap(cm_svm, annot=True, fmt="d", cmap="Blues")
+plt.title('SVM Confusion Matrix for Deaths')
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
 plt.show()
 
-# Plot Confusion Matrix
-plt.figure(figsize=(8, 6))
-plt.imshow(conf_matrix, interpolation='nearest', cmap=plt.cm.Blues)
-plt.title('Confusion Matrix')
-plt.colorbar()
-thresh = conf_matrix.max() / 2.
-for i in range(conf_matrix.shape[0]):
-    for j in range(conf_matrix.shape[1]):
-        plt.text(j, i, format(conf_matrix[i, j], 'd'),
-                 ha="center", va="center",
-                 color="white" if conf_matrix[i, j] > thresh else "black")
-plt.xlabel('Predicted label')
-plt.ylabel('True label')
-plt.tight_layout()
+# Plot Accuracy and Loss (Accuracy is shown since SVM does not have a 'loss')
+plt.figure(figsize=(10, 6))
+# Accuracy Plot
+train_accuracy = svm_model.score(X_train, y_train)
+test_accuracy = svm_model.score(X_test, y_test)
+
+plt.bar(['Train Accuracy', 'Test Accuracy'], [train_accuracy, test_accuracy], color=['blue', 'orange'])
+plt.title('SVM Accuracy')
+plt.ylabel('Accuracy')
 plt.show()

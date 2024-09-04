@@ -1,82 +1,63 @@
 import pandas as pd
-import matplotlib.pyplot as plt
+import numpy as np
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+from sklearn.metrics import classification_report, confusion_matrix, precision_recall_fscore_support
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Load your dataset
-data = pd.read_csv('pattern1.csv')
+file_path = 'pattern2.csv'
+df = pd.read_csv(file_path)
 
-# Define your target column and features
-target_column = 'Cases'  # Replace with your actual target column name ('Cases', 'Deaths', etc.)
-if target_column in data.columns:
-    X = data.drop(target_column, axis=1)
-    y = data[target_column]
-else:
-    raise KeyError(f'{target_column} not found in the dataset. Please check your column names.')
+# Convert 'Deaths' column to binary classification
+df['Deaths_binary'] = (df['Deaths'] > 0).astype(int)
 
-# Drop non-numeric columns for simplicity (day, time)
-X.drop(['day', 'time'], axis=1, inplace=True)
+# Select features and target
+selected_features = ['population', 'Cases', 'Deaths']
+X = df[selected_features]
+y = df['Deaths_binary']  # Target column for binary classification
 
-# Handle categorical columns using OneHotEncoder
-categorical_cols = ['country', 'continent']  # Adjust based on your dataset
-numeric_cols = [col for col in X.columns if col not in categorical_cols]
+# Standardize the features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
 
-# One-hot encode categorical columns
-onehot_encoder = OneHotEncoder(drop='first', sparse=False)
-X_encoded = onehot_encoder.fit_transform(X[categorical_cols])
+# Split the data into training and testing sets (80:20)
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
-# Create column names for the one-hot encoded columns
-cat_cols_encoded = onehot_encoder.get_feature_names_out(categorical_cols)
-X_encoded_df = pd.DataFrame(X_encoded, columns=cat_cols_encoded)
-
-# Concatenate encoded categorical columns with numerical columns
-X_processed = pd.concat([X_encoded_df, X[numeric_cols]], axis=1)
-
-# Convert target to labels for multiclass classification
-le = LabelEncoder()
-y_encoded = le.fit_transform(y)
-
-# Split the data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X_processed, y_encoded, test_size=0.2, random_state=42)
-
-# Create a Decision Tree classifier
+# Define and train the Decision Tree model
 dt_model = DecisionTreeClassifier(random_state=42)
-
-# Train the Decision Tree classifier
 dt_model.fit(X_train, y_train)
 
-# Predictions on the test set
-y_pred = dt_model.predict(X_test)
+# Predict on the test set
+y_pred_dt = dt_model.predict(X_test)
 
-# Calculate metrics
-accuracy = accuracy_score(y_test, y_pred)
-precision = precision_score(y_test, y_pred, average='macro')
-recall = recall_score(y_test, y_pred, average='macro')
-f1 = f1_score(y_test, y_pred, average='macro')
-conf_matrix = confusion_matrix(y_test, y_pred)
+# Print Classification Report for Decision Tree
+print("Classification Report for Decision Tree:\n", classification_report(y_test, y_pred_dt))
 
-# Print metrics
-print(f'Accuracy: {accuracy:.2f}')
-print(f'Precision: {precision:.2f}')
-print(f'Recall: {recall:.2f}')
-print(f'F1-score: {f1:.2f}')
-print('Confusion Matrix:')
-print(conf_matrix)
-
-# Plot Confusion Matrix
+# Plot Confusion Matrix for Test Data
 plt.figure(figsize=(8, 6))
-plt.imshow(conf_matrix, interpolation='nearest', cmap=plt.cm.Blues)
-plt.title('Confusion Matrix')
-plt.colorbar()
-thresh = conf_matrix.max() / 2.
-for i in range(conf_matrix.shape[0]):
-    for j in range(conf_matrix.shape[1]):
-        plt.text(j, i, format(conf_matrix[i, j], 'd'),
-                 ha="center", va="center",
-                 color="white" if conf_matrix[i, j] > thresh else "black")
-plt.xlabel('Predicted label')
-plt.ylabel('True label')
-plt.tight_layout()
+cm_dt = confusion_matrix(y_test, y_pred_dt)
+sns.heatmap(cm_dt, annot=True, fmt="d", cmap="Blues")
+plt.title('Decision Tree Confusion Matrix (Test Data)')
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
+plt.show()
+
+# Precision, Recall, F1-Score Plot
+precision, recall, f1_score, _ = precision_recall_fscore_support(y_test, y_pred_dt, average='binary')
+print("Precision:", precision)
+print("Recall:", recall)
+print("F1-Score:", f1_score)
+
+# Feature Importance Plot
+feature_importances = dt_model.feature_importances_
+features = selected_features
+
+plt.figure(figsize=(10, 6))
+plt.barh(features, feature_importances, color='skyblue')
+plt.xlabel('Importance')
+plt.ylabel('Feature')
+plt.title('Feature Importance in Decision Tree')
 plt.show()

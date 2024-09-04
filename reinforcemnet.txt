@@ -1,103 +1,99 @@
-import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder, LabelEncoder
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc, confusion_matrix
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import confusion_matrix, accuracy_score
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# Load your dataset
-data = pd.read_csv('pattern1.csv')
+# Load the dataset
+file_path = 'pattern2.csv'
+df = pd.read_csv(file_path)
 
-# Define your target column and features
-target_column = 'Cases'  # Replace with your actual target column name ('Cases', 'Deaths', etc.)
-if target_column in data.columns:
-    X = data.drop(target_column, axis=1)
-    y = data[target_column]
-else:
-    raise KeyError(f'{target_column} not found in the dataset. Please check your column names.')
+# Convert 'Deaths' column to binary classification
+df['Deaths_binary'] = (df['Deaths'] > 0).astype(int)
 
-# Drop non-numeric columns for simplicity (day, time)
-X.drop(['day', 'time'], axis=1, inplace=True)
+# Select features and target
+X = df[['population', 'Cases', 'Deaths']]
+y = df['Deaths_binary']
 
-# Handle categorical columns using OneHotEncoder
-categorical_cols = ['country', 'continent']  # Adjust based on your dataset
-numeric_cols = [col for col in X.columns if col not in categorical_cols]
+# Standardize the features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
 
-# One-hot encode categorical columns
-onehot_encoder = OneHotEncoder(drop='first', sparse=False)
-X_encoded = onehot_encoder.fit_transform(X[categorical_cols])
+# Split the data into training and testing sets (80:20)
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
-# Create column names for the one-hot encoded columns
-cat_cols_encoded = onehot_encoder.get_feature_names_out(categorical_cols)
-X_encoded_df = pd.DataFrame(X_encoded, columns=cat_cols_encoded)
+# Convert to NumPy arrays for Q-learning
+X_train = np.array(X_train)
+X_test = np.array(X_test)
+y_train = np.array(y_train)
+y_test = np.array(y_test)
 
-# Concatenate encoded categorical columns with numerical columns
-X_processed = pd.concat([X_encoded_df, X[numeric_cols]], axis=1)
+# Initialize Q-table with zeros (for binary classification, two possible actions)
+num_features = X_train.shape[1]
+num_actions = 2
+Q_table = np.zeros((len(X_train), num_features * num_actions))
 
-# Convert target to labels for multiclass classification
-le = LabelEncoder()
-y_encoded = le.fit_transform(y)
-
-# Split the data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X_processed, y_encoded, test_size=0.2, random_state=42)
-
-# Q-Learning parameters
-num_actions = len(np.unique(y_train))  # Number of classes
-num_states = X_train.shape[0]  # Number of training examples
-num_features = X_train.shape[1]  # Number of features
-q_table = np.zeros((num_states, num_actions))
+# Define Q-Learning parameters
 alpha = 0.1  # Learning rate
-gamma = 0.6  # Discount factor
+gamma = 0.9  # Discount factor
 epsilon = 0.1  # Exploration rate
-num_episodes = 1000
 
-# Q-Learning training
+# Train Q-Learning agent
+num_episodes = 100
+reward_list = []
+
 for episode in range(num_episodes):
-    state = np.random.randint(0, num_states)
-    for step in range(num_features):
-        if np.random.uniform(0, 1) < epsilon:
-            action = np.random.randint(0, num_actions)
+    total_reward = 0
+    
+    for i in range(len(X_train)):
+        state = X_train[i]
+        action = np.argmax(Q_table[i])  # Choose action with highest Q-value (exploitation)
+
+        # Simulate reward based on predicted action
+        if action == y_train[i]:
+            reward = 1
         else:
-            action = np.argmax(q_table[state, :])
+            reward = 0
 
-        next_state = (state + 1) % num_states
-        reward = 1 if y_train[state] == action else 0
-        q_table[state, action] = (1 - alpha) * q_table[state, action] + alpha * (reward + gamma * np.max(q_table[next_state, :]))
-        state = next_state
+        # Update Q-table
+        next_state = X_train[i]  # In this case, next_state is the same as state
+        next_action = np.argmax(Q_table[i])
+        td_target = reward + gamma * np.max(Q_table[i])
+        td_error = td_target - Q_table[i][action]
+        Q_table[i][action] += alpha * td_error
 
-# Predict on the test set
+        total_reward += reward
+    
+    reward_list.append(total_reward)
+
+# Evaluate on test set
 y_pred = []
-for state in range(X_test.shape[0]):
-    action = np.argmax(q_table[state % num_states, :])
+for state in X_test:
+    q_values = [np.max(Q_table[i]) for i in range(len(X_test))]
+    action = np.argmax(q_values)
     y_pred.append(action)
 
-# Calculate metrics
+# Calculate confusion matrix and accuracy
+cm = confusion_matrix(y_test, y_pred)
 accuracy = accuracy_score(y_test, y_pred)
-precision = precision_score(y_test, y_pred, average='macro')
-recall = recall_score(y_test, y_pred, average='macro')
-f1 = f1_score(y_test, y_pred, average='macro')
-conf_matrix = confusion_matrix(y_test, y_pred)
 
-# Print metrics
-print(f'Accuracy: {accuracy:.2f}')
-print(f'Precision: {precision:.2f}')
-print(f'Recall: {recall:.2f}')
-print(f'F1-score: {f1:.2f}')
-print('Confusion Matrix:')
-print(conf_matrix)
+print("Confusion Matrix:\n", cm)
+print("Accuracy Score:", accuracy)
 
-# Plot Confusion Matrix
+# Plot the reward curve
+plt.figure(figsize=(12, 6))
+plt.plot(reward_list)
+plt.xlabel('Episode')
+plt.ylabel('Total Reward')
+plt.title('Total Reward per Episode in Q-Learning')
+plt.show()
+
+# Plot the confusion matrix
 plt.figure(figsize=(8, 6))
-plt.imshow(conf_matrix, interpolation='nearest', cmap=plt.cm.Blues)
+sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
 plt.title('Confusion Matrix')
-plt.colorbar()
-thresh = conf_matrix.max() / 2.
-for i in range(conf_matrix.shape[0]):
-    for j in range(conf_matrix.shape[1]):
-        plt.text(j, i, format(conf_matrix[i, j], 'd'),
-                 ha="center", va="center",
-                 color="white" if conf_matrix[i, j] > thresh else "black")
-plt.xlabel('Predicted label')
-plt.ylabel('True label')
-plt.tight_layout()
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
 plt.show()
